@@ -6,3 +6,4 @@ node_modules/*
 err.log
 out.log
 package-lock.json
+data/userdata.json
