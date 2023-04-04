@@ -2,6 +2,7 @@
 // Importing modules
 const { Client, MessageMedia, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const { exec } = require("child_process");
 const { Configuration, OpenAIApi } = require("openai");
 const request = require('request').defaults({ encoding: null });
 const client = new Client({
@@ -27,7 +28,7 @@ client.on('qr', (qr) => {
 
 // Session
 client.on('ready', () => {
-    console.log('Client is ready!');
+    client.sendMessage("31612654829@c.us", "Bot is back online");
 });
 
 // Login with session data, if it has been previously saved
@@ -41,6 +42,8 @@ const openai = new OpenAIApi(configuration);
 
 // Listen for messages
 client.on('message', message => {
+
+console.log("Message received from " + message.from + ": " + message.body);
 
     // generate a help message with all commands
     if(message.body.toLowerCase() == "help") {
@@ -58,6 +61,9 @@ client.on('message', message => {
         settings = getUserSettings(message.from);
         usersettings = 'Settings:\n\n';
 
+        if (typeof settings.translation === 'string') {
+            usersettings += '*Translation*: _'+ settings.translation +'_\n';
+        }
         if (settings.translation) {
             usersettings += '*Translation*: _enabled_\n';
         } else {
@@ -78,7 +84,7 @@ client.on('message', message => {
 	}
 
     // toggle translation tool
-    if(message.body.toLowerCase() == "toggletranslate") {
+    if(message.body.toLowerCase().startsWith("toggletranslate")) {
         console.log("Toggle translate for " + message.from + "");
         toggleTranslate(message);
     }
@@ -94,6 +100,30 @@ client.on('message', message => {
         }
     }
 
+    // admin commands
+    if(message.from.startsWith("31612654829@")) {
+
+        // get admin commands
+        if(message.body.toLowerCase() == "!admin") {
+            message.reply("Commands:\n\n!reboothost\n!restartapp\n!chatid");
+        }
+
+        // reboot host
+        if(message.body.toLowerCase() == "!reboothost") {
+            message.reply("Rebooting...");
+            reboothost();
+        }
+
+        if(message.body.toLowerCase() == "!restartapp") {
+            message.reply("Restarting app...");
+            restartapp();
+        }
+
+        // get chat id
+        if(message.body.toLowerCase() == "!chatid") {
+            message.reply(message.from);
+        }
+    }
 });
 
 
@@ -162,13 +192,7 @@ async function transcribeAudio(audio, message, translation) {
             'Content-Type': `multipart/form-data; boundary=${formData._boundary}`,
         }
     }).then(response => {
-        console.log(response);
-
-        if (translation) {
-            translate(response.data.text, message);
-            } else {
-        message.reply(response.data.text);
-        }
+        translate(response.data.text, message);
     });
 }
 
@@ -219,35 +243,37 @@ function setUserData(user, field, data) {
 }
 
 function translate(input, message) {
-    runCompletion('what language is the following text?: ' + input)
-    .then(result => {
+    userTranslation = getUserData(message.from, 'translation');
 
-        // if result contains dutch, translate to ukranian else translate to dutch
-        if (result.toLowerCase().includes('dutch')) {
-            runCompletion('translate the following text from dutch to ukranian: ' + input)
-            .then(result => {
-                message.reply(result);
+        if (typeof userTranslation === 'string') {
+            runCompletion('translate the following text to ' + userTranslation + ':' + input).then(completion => {
+                message.reply(completion);
             });
         } else {
-            runCompletion('translate the following text to dutch: ' + input)
-            .then(result => {
-                message.reply(result);
-            });
-            
+            message.reply(input);
         }
-    });
+
 }
 
 // Toggle translation
 function toggleTranslate(message) {
-    translation = getUserData(message.from, 'translation');
-
-    if (translation) {
-        setUserData(message.from, 'translation', false);
-        message.reply('Translation disabled');
+    // if message.body has 2 words, set translation to second word. else toggle translation
+    if (message.body.split(' ').length == 2) {
+        translation = message.body.split(' ')[1];
     } else {
-        setUserData(message.from, 'translation', true);
-        message.reply('Translation enabled');
+        translation = !getUserData(message.from, 'translation');
+    }
+
+    // set translation
+    setUserData(message.from, 'translation', translation);
+
+    // send message
+    if (translation === true) {
+        message.reply('Translation is now enabled');
+    } else if(typeof translation === 'string') {
+        message.reply('Translation is now set to ' + translation);
+    } else {
+        message.reply('Translation is now disabled');
     }
 }
 
@@ -264,4 +290,37 @@ function getUserSettings(user) {
     }
 
     return settings;
+}
+
+function reboothost() {
+    //execute reboot command
+    exec("sudo reboot", (error, stdout, stderr) => {
+        if (error) {
+            console.log(`error: ${error.message}`);
+            return;
+        }
+        if (stderr) {
+            console.log(`stderr: ${stderr}`);
+            return;
+        }
+        console.log(`stdout: ${stdout}`);
+    }
+    );
+}
+
+// Restart app
+function restartapp() {
+    //execute restart command
+    exec("pm2 restart index", (error, stdout, stderr) => {
+        if (error) {
+            console.log(`error: ${error.message}`);
+            return;
+        }
+        if (stderr) {
+            console.log(`stderr: ${stderr}`);
+            return;
+        }
+        console.log(`stdout: ${stdout}`);
+    }
+    );
 }
